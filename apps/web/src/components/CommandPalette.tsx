@@ -2731,14 +2731,16 @@ function OpenCommandPaletteDialog(props: {
     }
     // Global new-thread handlers ignore shortcuts while the palette is open.
     const isJump = threadJumpIndexFromCommand(command ?? "") !== null;
-    const isNewThread =
+    const isPaletteActionShortcut =
+      !event.repeat &&
       !event.nativeEvent.isComposing &&
       event.keyCode !== 229 &&
       (command === "chat.new" ||
         command === "chat.newLocal" ||
-        command === "chat.newWithoutProject");
+        command === "chat.newWithoutProject" ||
+        command === "graph.toggle");
     const matchingItem =
-      isJump || isNewThread
+      isJump || isPaletteActionShortcut
         ? displayedGroups
             .flatMap((group) => group.items)
             .find((item) => item.shortcutCommand === command)

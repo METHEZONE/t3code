@@ -137,7 +137,9 @@ function GraphNodeCard(props: {
   const status = RUNTIME_STATUS[node.status];
   const statusLabel = threadRelationshipStatusLabel(status, m);
   const timing = { status, startedAt: node.startedAt, completedAt: node.completedAt };
-  const showElapsed = node.startedAt !== null && (node.status === "running" || node.completedAt);
+  const showElapsed =
+    node.startedAt !== null &&
+    (node.status === "running" || node.status === "waiting" || node.completedAt !== null);
   const model = node.model
     ? resolveSubagentMetadata({ model: node.model, provider }, m).modelLabel
     : null;
@@ -169,7 +171,17 @@ function GraphNodeCard(props: {
             node.status === "failed" ? "text-destructive" : "text-muted-foreground",
           )}
         >
-          {showElapsed ? <AgentElapsed agent={timing} compact /> : statusLabel}
+          {showElapsed ? (
+            node.status === "waiting" ? (
+              <>
+                {statusLabel} · <AgentElapsed agent={timing} compact />
+              </>
+            ) : (
+              <AgentElapsed agent={timing} compact />
+            )
+          ) : (
+            statusLabel
+          )}
         </span>
       </span>
       <span className="flex min-w-0 items-center gap-2">
