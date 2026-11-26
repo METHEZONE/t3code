@@ -58,6 +58,30 @@ describe("rightPanelStore", () => {
     );
   });
 
+  it("opens the thread graph as one tab that survives a reload and can be reopened", async () => {
+    const store = useRightPanelStore.getState();
+    store.open(refA, "graph");
+    store.open(refA, "graph");
+    const surfaces = () =>
+      selectThreadRightPanelState(useRightPanelStore.getState().byThreadKey, refA).surfaces;
+    expect(surfaces()).toEqual([{ id: "graph", kind: "graph" }]);
+
+    await reloadRightPanelStore();
+    expect(surfaces()).toEqual([{ id: "graph", kind: "graph" }]);
+
+    useRightPanelStore.getState().closeSurface(refA, "graph");
+    expect(surfaces()).toEqual([]);
+    expect(
+      await reopenClosedView(useClosedViewStore.getState().entries[0]!, {
+        workspaceAvailable: true,
+        openPreview: () => {
+          throw new Error("a graph tab opens no preview");
+        },
+      }),
+    ).toBe(true);
+    expect(surfaces()).toEqual([{ id: "graph", kind: "graph" }]);
+  });
+
   it("records single and bulk tab closes, newest first", () => {
     const store = useRightPanelStore.getState();
     const pr = pullRequestSurface({

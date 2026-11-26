@@ -162,6 +162,11 @@ export function useRightPanelActions(input: RightPanelActionsInput) {
     useRightPanelStore.getState().open(activeThreadRef, "pull-requests");
   };
   const addPullRequestsSurfaceStable = useStableCallback(addPullRequestsSurface);
+  const addGraphSurface = () => {
+    if (!activeThreadRef) return;
+    useRightPanelStore.getState().open(activeThreadRef, "graph");
+  };
+  const addGraphSurfaceStable = useStableCallback(addGraphSurface);
   const addDeviceSurface = () => {
     if (!activeThreadRef) return;
     if (!deviceState.onboardingCompleted || deviceState.hostStatus === "disabled") {
@@ -345,6 +350,7 @@ export function useRightPanelActions(input: RightPanelActionsInput) {
     addFilesSurfaceStable,
     addPullRequestSurfaceStable,
     addPullRequestsSurfaceStable,
+    addGraphSurfaceStable,
     closePreviewPanelStable,
     copyRightPanelFilePathStable,
     createBrowserSurface,

@@ -51,6 +51,7 @@ import {
   Files,
   Globe2,
   MessagesSquare,
+  Network,
   Plus,
   TerminalSquare,
   Volume2Icon,
@@ -158,6 +159,8 @@ export interface RightPanelTabsProps {
   onAddPullRequest: () => void;
   onAddPullRequests: () => void;
   onAddDevice: () => void;
+  /** Absent where the thread graph is not offered, such as the pull request and issue lists. */
+  onAddGraph?: (() => void) | undefined;
   /** Absent where side chats are not offered. */
   onAddSideChat?: (() => void) | undefined;
   browserAvailable: boolean;
@@ -196,6 +199,7 @@ const SURFACE_DISABLED_REASONS = {
   pullRequest: msg("This thread's branch has no pull request yet."),
   pullRequests: msg("This thread has no linked items."),
   device: msg("Devices are only available from a thread."),
+  graph: msg("The thread graph is only available from a thread."),
   sideChat: msg("Side chats start after the first message."),
 } as const;
 
@@ -221,6 +225,7 @@ const SURFACE_UNAVAILABLE_HINTS = {
   pullRequest: msg("No pull request on this branch yet."),
   pullRequests: msg("No linked items available."),
   device: msg("Available from a thread."),
+  graph: msg("Available from a thread."),
   sideChat: msg("Available after the first message."),
 } as const;
 
@@ -339,6 +344,7 @@ function RightPanelEmptyState(props: {
   onAddPullRequest: () => void;
   onAddPullRequests: () => void;
   onAddDevice: () => void;
+  onAddGraph?: (() => void) | undefined;
   /** Absent where side chats are not offered. */
   onAddSideChat?: (() => void) | undefined;
   browserAvailable: boolean;
@@ -413,6 +419,19 @@ function RightPanelEmptyState(props: {
       disabledReason: messages(SURFACE_UNAVAILABLE_HINTS.device),
       onClick: props.onAddDevice,
     },
+    ...(props.onAddGraph
+      ? [
+          {
+            label: msg("Graph"),
+            description: msg("See how this thread's forks and subagents connect."),
+            icon: Network,
+            shortcut: "G",
+            available: true,
+            disabledReason: messages(SURFACE_UNAVAILABLE_HINTS.graph),
+            onClick: props.onAddGraph,
+          },
+        ]
+      : []),
     ...(props.onAddSideChat
       ? [
           {
@@ -613,6 +632,8 @@ function surfaceTitle(
       return `#${surface.number}`;
     case "pull-requests":
       return resolve(msg("Linked items"));
+    case "graph":
+      return resolve(msg("Graph"));
     case "issue":
       // A git host numbers its issues; a tracker with keys of its own, such as Linear, names them.
       return /^\d+$/.test(surface.key) ? `#${surface.key}` : surface.key;
@@ -714,6 +735,8 @@ function SurfaceIcon({
       );
     case "pull-requests":
       return <PullRequestGlyph.link className="size-3 shrink-0" />;
+    case "graph":
+      return <Network className="size-3 shrink-0" />;
     case "issue":
       return <IssueSurfaceIcon surface={surface} environmentId={environmentId} />;
     case "thread":
@@ -1213,6 +1236,18 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
       disabledReason: messages(SURFACE_DISABLED_REASONS.device),
       onClick: props.onAddDevice,
     },
+    ...(props.onAddGraph
+      ? [
+          {
+            label: msg("Graph"),
+            icon: Network,
+            shortcut: "G",
+            available: true,
+            disabledReason: messages(SURFACE_DISABLED_REASONS.graph),
+            onClick: props.onAddGraph,
+          },
+        ]
+      : []),
     ...(props.onAddSideChat
       ? [
           {
@@ -1687,6 +1722,7 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
             onAddPullRequest={props.onAddPullRequest}
             onAddPullRequests={props.onAddPullRequests}
             onAddDevice={props.onAddDevice}
+            onAddGraph={props.onAddGraph}
             onAddSideChat={props.onAddSideChat}
             browserAvailable={props.browserAvailable}
             terminalAvailable={props.terminalAvailable}

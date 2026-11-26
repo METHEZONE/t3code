@@ -466,6 +466,37 @@ export function useThreadRelationshipShells(
   return useAtomValue(relationshipShellsAtomFamily(threadKey(ref)));
 }
 
+const threadFamilyShellsAtomFamily = Atom.family((key: string) => {
+  const ref = parseThreadKey(key);
+  let previous: ReadonlyArray<OrchestrationV2ThreadShell> = [];
+  return Atom.make((get) => {
+    const rootThreadId =
+      get(environmentThreadDetails.quietThreadAtom(ref))?.projection.thread.lineage.rootThreadId ??
+      get(environmentThreadShells.quietThreadShellAtom(ref))?.source.lineage.rootThreadId;
+    const next = get(environmentThreadShells.environmentThreadsAtom(ref.environmentId))
+      .filter((thread) => thread.lineage.rootThreadId === rootThreadId)
+      .map(
+        (thread) =>
+          get(
+            environmentThreadShells.quietThreadShellAtom({
+              environmentId: ref.environmentId,
+              threadId: thread.id,
+            }),
+          )?.source ?? thread,
+      );
+    if (arrayElementsEqual(previous, next)) return previous;
+    previous = next;
+    return next;
+  }).pipe(Atom.withLabel(`web-thread-family-shells:${key}`));
+});
+
+/** Every shell that shares the thread's root, which is the lineage the thread graph draws. */
+export function useThreadFamilyShells(
+  ref: ScopedThreadRef,
+): ReadonlyArray<OrchestrationV2ThreadShell> {
+  return useAtomValue(threadFamilyShellsAtomFamily(threadKey(ref)));
+}
+
 interface SubagentChild {
   readonly threadId: ThreadId;
   /** Set when the task ran on a linked environment, which holds its thread. */

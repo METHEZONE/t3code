@@ -435,6 +435,10 @@
       "types": "./src/state/threadRelationships.ts",
       "default": "./src/state/threadRelationships.ts"
     },
+    "./state/thread-workflow-graph": {
+      "types": "./src/state/threadWorkflowGraph.ts",
+      "default": "./src/state/threadWorkflowGraph.ts"
+    },
     "./state/thread-checkpoints": {
       "types": "./src/state/threadCheckpoints.ts",
       "default": "./src/state/threadCheckpoints.ts"

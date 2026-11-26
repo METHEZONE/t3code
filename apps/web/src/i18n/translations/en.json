@@ -13023,5 +13023,23 @@
       "v": "v"
     },
     " more in Linked items"
-  ]
+  ],
+  "569a39e33b80b4bc": "The thread graph is only available from a thread.",
+  "41f779f104d843cd": "Graph",
+  "28532a4906de8dcf": "See how this thread's forks and subagents connect.",
+  "14839d71ce979ce5": "Thread",
+  "f0d939c926e4d04a": "Fork",
+  "b47e01385dd327f8": "Subagent",
+  "0b16feaf8d43b103": "Side chat",
+  "03be3e01e5bcefb1": "on {label}",
+  "cbd4e1043c6cbf98": "another environment",
+  "070e8d2523890f69": "{count, plural, one {{count} thread} other {{count} threads}}",
+  "85075ce67b0448f8": "Graph direction",
+  "f58ae7e4c5a15d5d": "Vertical layout",
+  "6d0e355594005caf": "Horizontal layout",
+  "e398eabf78ef0c11": "Vertical",
+  "9406435675a87f0a": "Horizontal",
+  "30c99f62fdfe054f": "Forks, subagents and delegated tasks appear here as this thread branches.",
+  "76dd64150d5cf903": "Delegated task",
+  "63d2a4b04b435711": "Merge back"
 }

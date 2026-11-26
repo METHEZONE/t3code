@@ -2545,6 +2545,7 @@ export default function ChatView(props: ChatViewProps) {
     addFilesSurfaceStable,
     addPullRequestSurfaceStable,
     addPullRequestsSurfaceStable,
+    addGraphSurfaceStable,
     closePreviewPanelStable,
     copyRightPanelFilePathStable,
     createBrowserSurface,
@@ -4288,6 +4289,7 @@ export default function ChatView(props: ChatViewProps) {
           onAddPullRequest={addPullRequestSurfaceStable}
           onAddPullRequests={addPullRequestsSurfaceStable}
           onAddDevice={addDeviceSurfaceStable}
+          onAddGraph={addGraphSurfaceStable}
           onAddSideChat={sideChatsOffered ? openSideChatStable : undefined}
           browserAvailable={canOperatePreview && browserAvailable}
           terminalAvailable={activeProject !== null && canOperateTerminal}
