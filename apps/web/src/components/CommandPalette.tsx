@@ -1569,6 +1569,21 @@ function OpenCommandPaletteDialog(props: {
     });
   }
 
+  if (activeThread !== null) {
+    const threadRef = scopeThreadRef(activeThread.environmentId, activeThread.id);
+    actionItems.push({
+      kind: "action",
+      value: "action:toggle-thread-graph",
+      searchTerms: ["graph", "workflow", "lineage", "threads", "tree"],
+      title: gt("Toggle thread graph"),
+      icon: <WorkflowIcon className={ITEM_ICON_CLASS} />,
+      shortcutCommand: "graph.toggle",
+      run: async () => {
+        useRightPanelStore.getState().toggle(threadRef, "graph");
+      },
+    });
+  }
+
   if (activeThread !== null && canShareActiveThreadWithGuest) {
     const threadRef = scopeThreadRef(activeThread.environmentId, activeThread.id);
     actionItems.push({

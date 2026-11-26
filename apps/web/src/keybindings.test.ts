@@ -808,6 +808,31 @@ describe("resolveShortcutCommand", () => {
     );
   });
 
+  it("opens the graph tab with mod+alt+g and leaves other defaults on that chord alone", () => {
+    const chord = event({ key: "©", code: "KeyG", metaKey: true, altKey: true });
+    assert.strictEqual(
+      resolveShortcutCommand(chord, DEFAULT_RESOLVED_KEYBINDINGS, { platform: "MacIntel" }),
+      "graph.toggle",
+    );
+    assert.strictEqual(
+      resolveShortcutCommand(chord, DEFAULT_RESOLVED_KEYBINDINGS, {
+        platform: "MacIntel",
+        context: { terminalFocus: true },
+      }),
+      null,
+    );
+    assert.deepStrictEqual(
+      DEFAULT_RESOLVED_KEYBINDINGS.filter(
+        (binding) =>
+          binding.shortcut.key === "g" &&
+          binding.shortcut.modKey &&
+          binding.shortcut.altKey &&
+          !binding.shortcut.shiftKey,
+      ).map((binding) => binding.command),
+      ["graph.toggle"],
+    );
+  });
+
   it("matches Option-modified letters using the physical key code on macOS", () => {
     assert.strictEqual(
       resolveShortcutCommand(

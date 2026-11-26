@@ -340,6 +340,9 @@ export function useRightPanelActions(input: RightPanelActionsInput) {
       if (!event.repeat) closeRightPanelSurface(activeRightPanelSurface);
     },
     "diff.toggle": () => onToggleDiff(),
+    "graph.toggle": () => {
+      if (activeThreadRef) useRightPanelStore.getState().toggle(activeThreadRef, "graph");
+    },
   } satisfies ChatShortcutCommands;
 
   return {
