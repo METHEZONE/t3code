@@ -238,6 +238,181 @@ describe("buildWorkflowGraph", () => {
   });
 });
 
+describe("buildWorkflowGraph regressions", () => {
+  const subagentOf = (
+    childThreadId: string,
+    status: string,
+    extra: Record<string, unknown> = {},
+  ) => ({
+    childThreadId: id(childThreadId),
+    status,
+    title: childThreadId,
+    providerInstanceId: "codex",
+    startedAt: at(6),
+    completedAt: null,
+    updatedAt: at(7),
+    ...extra,
+  });
+
+  it("keeps a subagent running while its own shell is still idle", () => {
+    const idleShell = shell(
+      "kid",
+      {
+        createdAt: at(2),
+        status: "idle",
+        latestRunId: null,
+        latestRunStartedAt: null,
+        latestRunCompletedAt: null,
+      },
+      { parentThreadId: id("root"), relationshipToParent: "subagent" },
+    );
+    const graph = buildWorkflowGraph({
+      threadId: id("root"),
+      threads: [shell("root"), idleShell],
+      projection: {
+        thread: shell("root"),
+        subagents: [subagentOf("kid", "running")],
+        contextTransfers: [],
+      } as never,
+    });
+    expect(graph.nodes.find((node) => node.id === "kid")).toMatchObject({
+      status: "running",
+      startedAt: "2026-11-26T09:06:00.000Z",
+      completedAt: null,
+    });
+    expect(graph.edges[0]).toMatchObject({ target: "kid", status: "running" });
+  });
+
+  it("lets a settled shell and a live shell outrank the subagent row", () => {
+    const build = (shellOverrides: Record<string, unknown>) =>
+      buildWorkflowGraph({
+        threadId: id("root"),
+        threads: [
+          shell("root"),
+          shell(
+            "kid",
+            { createdAt: at(2), latestRunId: "run-1", ...shellOverrides },
+            { parentThreadId: id("root"), relationshipToParent: "subagent" },
+          ),
+        ],
+        projection: {
+          thread: shell("root"),
+          subagents: [subagentOf("kid", "completed")],
+          contextTransfers: [],
+        } as never,
+      }).nodes.find((node) => node.id === "kid")?.status;
+    expect(build({ status: "failed" })).toBe("failed");
+    expect(build({ status: "completed", activityRunStatus: "running" })).toBe("running");
+  });
+
+  it("shows only the current run's clock while waiting on an approval", () => {
+    const graph = buildWorkflowGraph({
+      threadId: id("root"),
+      threads: [
+        shell("root", {
+          status: "completed",
+          activityRunStatus: "waiting",
+          pendingRuntimeRequest: { kind: "approval" },
+          latestRunStartedAt: at(1),
+          latestRunCompletedAt: at(4),
+          activityRunStartedAt: at(8),
+        }),
+      ],
+      projection: null,
+    });
+    expect(graph.nodes[0]).toMatchObject({
+      status: "waiting",
+      startedAt: "2026-11-26T09:08:00.000Z",
+      completedAt: null,
+    });
+    const stale = buildWorkflowGraph({
+      threadId: id("root"),
+      threads: [
+        shell("root", {
+          status: "completed",
+          activityRunStatus: "waiting",
+          activityRunStartedAt: null,
+        }),
+      ],
+      projection: null,
+    });
+    expect(stale.nodes[0]).toMatchObject({ status: "waiting", startedAt: null, completedAt: null });
+  });
+
+  describe("merge-back", () => {
+    const transfer = (status: string, updatedAt = 5) => ({
+      id: `transfer-${status}`,
+      type: "merge_back",
+      sourceThreadId: id("fork"),
+      targetThreadId: id("root"),
+      status,
+      updatedAt: at(updatedAt),
+    });
+    const family = [shell("root"), child("fork", "root", "fork", 1)];
+    const projectionOf = (threadId: string, transfers: unknown[]) =>
+      ({ thread: shell(threadId), subagents: [], contextTransfers: transfers }) as never;
+
+    it.each([
+      ["pending", "waiting"],
+      ["resolved_native", "waiting"],
+      ["consumed", "completed"],
+      ["failed", "failed"],
+      ["superseded", "stopped"],
+    ])("reports a %s transfer as %s, not as the fork's own status", (status, expected) => {
+      const graph = buildWorkflowGraph({
+        threadId: id("root"),
+        threads: family,
+        projection: projectionOf("root", [transfer(status)]),
+      });
+      expect(graph.edges.find((edge) => edge.kind === "merge_back")?.status).toBe(expected);
+    });
+
+    it("draws the same merge-back from the parent, the fork and a sibling", () => {
+      const transfers = [transfer("failed")];
+      const sibling = child("sibling", "root", "fork", 2);
+      const threads = [...family, sibling];
+      const mergeBacks = (threadId: string, projection: unknown, related: unknown[] = []) =>
+        buildWorkflowGraph({
+          threadId: id(threadId),
+          threads,
+          projection: projection as never,
+          relatedProjections: related as never,
+        }).edges.filter((edge) => edge.kind === "merge_back");
+      const fromParent = mergeBacks("root", projectionOf("root", transfers));
+      const fromFork = mergeBacks("fork", projectionOf("fork", transfers));
+      // The fork's own projection holds nothing, so only the parent's side names the transfer.
+      const fromSibling = mergeBacks("sibling", projectionOf("sibling", []), [
+        projectionOf("root", transfers),
+      ]);
+      expect(fromParent).toHaveLength(1);
+      expect(fromFork).toEqual(fromParent);
+      expect(fromSibling).toEqual(fromParent);
+    });
+
+    it("lets the newest transfer for a pair decide", () => {
+      const graph = buildWorkflowGraph({
+        threadId: id("root"),
+        threads: family,
+        projection: projectionOf("root", [transfer("failed", 5), transfer("consumed", 9)]),
+      });
+      const edges = graph.edges.filter((edge) => edge.kind === "merge_back");
+      expect(edges.map((edge) => edge.status)).toEqual(["completed"]);
+    });
+  });
+
+  it("keeps a parent the stores lack in the graph without a title", () => {
+    const graph = buildWorkflowGraph({
+      threadId: id("fork"),
+      threads: [child("fork", "gone", "fork", 1)],
+      projection: null,
+    });
+    expect(graph.nodes.find((node) => node.id === "gone")).toMatchObject({
+      title: null,
+      role: "root",
+    });
+  });
+});
+
 describe("layoutWorkflowGraph", () => {
   const { nodeWidth, nodeHeight, layerGap, siblingGap, padding } = WORKFLOW_GRAPH_METRICS;
   const tree = buildWorkflowGraph({
@@ -355,5 +530,46 @@ describe("layoutWorkflowGraph", () => {
       "TB",
     );
     expect(layout.nodes.map((node) => node.id).sort()).toEqual(["x", "y"]);
+  });
+  it("lays out a 5,000-deep lineage without exhausting the stack", () => {
+    const depth = 5_000;
+    const threads = [
+      shell("t0"),
+      ...Array.from({ length: depth }, (_, index) =>
+        child(`t${index + 1}`, `t${index}`, "fork", index + 1),
+      ),
+    ];
+    const graph = buildWorkflowGraph({ threadId: id("t0"), threads, projection: null });
+    expect(graph.nodes).toHaveLength(depth + 1);
+    for (const orientation of ["TB", "LR"] as const) {
+      const layout = layoutWorkflowGraph(graph, orientation);
+      expect(layout.nodes).toHaveLength(depth + 1);
+      expect(layout.edges).toHaveLength(depth);
+      const last = layout.nodes.find((node) => node.id === `t${depth}`)!;
+      expect(orientation === "TB" ? last.y : last.x).toBe(
+        padding + depth * ((orientation === "TB" ? nodeHeight : nodeWidth) + layerGap),
+      );
+    }
+  });
+
+  it("points a reversed edge at its real target", () => {
+    const [root, a] = tree.nodes;
+    const reversed = layoutWorkflowGraph(
+      {
+        nodes: [root!, a!],
+        edges: [
+          { id: "down", source: root!.id, target: a!.id, kind: "fork", status: "idle" },
+          { id: "up", source: a!.id, target: root!.id, kind: "fork", status: "idle" },
+        ],
+      },
+      "TB",
+    );
+    const [down, up] = reversed.edges;
+    const place = (nodeId: string) => reversed.nodes.find((node) => node.id === nodeId)!;
+    expect(down?.heading).toBe("down");
+    expect(down?.end.y).toBe(place(a!.id).y);
+    expect(up?.heading).toBe("up");
+    // The reversed edge arrives on the root's lower side.
+    expect(up?.end.y).toBe(place(root!.id).y + nodeHeight);
   });
 });

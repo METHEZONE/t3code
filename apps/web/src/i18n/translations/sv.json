@@ -13022,7 +13022,6 @@
     },
     " till i Länkade objekt"
   ],
-  "569a39e33b80b4bc": "The thread graph is only available from a thread.",
   "41f779f104d843cd": "Graph",
   "28532a4906de8dcf": "See how this thread's forks and subagents connect.",
   "14839d71ce979ce5": "Thread",
@@ -13035,8 +13034,6 @@
   "85075ce67b0448f8": "Graph direction",
   "f58ae7e4c5a15d5d": "Vertical layout",
   "6d0e355594005caf": "Horizontal layout",
-  "e398eabf78ef0c11": "Vertical",
-  "9406435675a87f0a": "Horizontal",
   "30c99f62fdfe054f": "Forks, subagents and delegated tasks appear here as this thread branches.",
   "76dd64150d5cf903": "Delegated task",
   "63d2a4b04b435711": "Merge back"

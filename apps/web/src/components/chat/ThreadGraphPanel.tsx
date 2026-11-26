@@ -41,6 +41,8 @@ import {
 import { useQuietThreadProjection, useThreadFamilyShells } from "~/state/entities";
 import { useEnvironment, useEnvironmentProviders } from "~/state/environments";
 import { useLinkedThreadOpener } from "~/state/linkedThreadView";
+import { orchestrationEnvironment } from "~/state/orchestration";
+import { useEnvironmentQuery } from "~/state/query";
 import { buildThreadRouteParams } from "~/threadRoutes";
 
 import { Badge } from "../ui/badge";
@@ -285,6 +287,23 @@ function LegendLine(props: { readonly dash: string }) {
   );
 }
 
+/**
+ * The graph can be wider than a narrow panel, so the open thread is centred in view when the
+ * canvas mounts, which it does again for another thread or direction, instead of being left past
+ * the edge.
+ */
+function centerOnCurrentNode(canvas: HTMLElement | null) {
+  const viewport = canvas?.closest<HTMLElement>('[data-slot="scroll-area-viewport"]');
+  const card = canvas?.querySelector<HTMLElement>('[aria-current="true"]');
+  if (!viewport || !card) return;
+  const view = viewport.getBoundingClientRect();
+  const at = card.getBoundingClientRect();
+  viewport.scrollLeft += at.left + at.width / 2 - (view.left + view.width / 2);
+  if (at.top < view.top || at.bottom > view.bottom) {
+    viewport.scrollTop += at.top + at.height / 2 - (view.top + view.height / 2);
+  }
+}
+
 export function ThreadGraphPanel(props: { readonly threadRef: ScopedThreadRef }) {
   const gt = useGT();
   const { threadRef } = props;
@@ -301,7 +320,46 @@ export function ThreadGraphPanel(props: { readonly threadRef: ScopedThreadRef })
   const providerEntries = deriveProviderInstanceEntries(providers ?? []);
   const anyInstanceBadge = hasInstanceBadge(providerEntries);
 
-  const graph = buildWorkflowGraph({ threadId: threadRef.threadId, threads: shells, projection });
+  // A merge-back can be kept on the parent's side only, so the parent's projection is read too and
+  // the same merge-back shows whichever end is open.
+  const currentThread =
+    projection?.thread ?? shells.find((shell) => shell.id === threadRef.threadId) ?? null;
+  const parentThreadId =
+    currentThread?.forkedFrom?.type === "run"
+      ? currentThread.forkedFrom.threadId
+      : (currentThread?.lineage.parentThreadId ?? null);
+  const parentProjection =
+    useQuietThreadProjection(
+      parentThreadId === null ? null : scopeThreadRef(threadRef.environmentId, parentThreadId),
+    )?.projection ?? null;
+
+  const graph = buildWorkflowGraph({
+    threadId: threadRef.threadId,
+    threads: shells,
+    projection,
+    relatedProjections: [parentProjection],
+  });
+  // A parent the local store lacks may be archived or gone; only its title lookup says which, as in
+  // the Related threads list. Until a title is known there is nothing safe to open.
+  const unlistedThreadIds = graph.nodes.flatMap((node) =>
+    node.threadId !== null &&
+    !node.current &&
+    node.title === null &&
+    !shells.some((shell) => shell.id === node.threadId)
+      ? [node.threadId]
+      : [],
+  );
+  const threadTitles = useEnvironmentQuery(
+    unlistedThreadIds.length === 0
+      ? null
+      : orchestrationEnvironment.threadTitles({
+          environmentId: threadRef.environmentId,
+          input: { threadIds: unlistedThreadIds },
+        }),
+  );
+  const resolvedTitles = threadTitles.data ?? {};
+  const resolvedTitle = (node: WorkflowGraphNode) =>
+    node.threadId === null ? null : resolvedTitles[node.threadId]?.trim() || null;
   const layout = layoutWorkflowGraph(graph, orientation);
   const positions = new Map(layout.nodes.map((node) => [node.id, node]));
   const parentOf = new Map(
@@ -337,6 +395,9 @@ export function ThreadGraphPanel(props: { readonly threadRef: ScopedThreadRef })
 
   const localNodeProps = (node: WorkflowGraphNode) => {
     const threadId = node.threadId!;
+    const lookedUp = unlistedThreadIds.includes(threadId);
+    // A thread no store holds and no lookup names is not safe to open.
+    const unavailable = lookedUp && resolvedTitle(node) === null;
     const provider = providers?.find((entry) => entry.instanceId === node.providerInstanceId);
     const isAncestor = ancestors.has(node.id);
     const sideLike = !isAncestor && (node.role === "subagent" || node.role === "side-chat");
@@ -351,12 +412,14 @@ export function ThreadGraphPanel(props: { readonly threadRef: ScopedThreadRef })
           : gt("Open fork in this chat");
     return {
       provider,
-      hint: node.current ? null : hint,
-      interaction: node.current
-        ? null
-        : sideLike
-          ? trigger((intent) => openSideThreadNode(threadId, intent))
-          : { onClick: () => openThread(threadId) },
+      hint: node.current || unavailable ? null : hint,
+      node: lookedUp ? { ...node, title: resolvedTitle(node) } : node,
+      interaction:
+        node.current || unavailable
+          ? null
+          : sideLike
+            ? trigger((intent) => openSideThreadNode(threadId, intent))
+            : { onClick: () => openThread(threadId) },
     };
   };
 
@@ -397,6 +460,8 @@ export function ThreadGraphPanel(props: { readonly threadRef: ScopedThreadRef })
       </div>
       <ScrollArea className="min-h-0 flex-1">
         <div
+          key={`${threadRef.threadId}:${orientation}`}
+          ref={centerOnCurrentNode}
           className="relative mx-auto"
           style={{ width: layout.width, height: layout.height }}
           data-graph-orientation={orientation}
@@ -442,11 +507,11 @@ export function ThreadGraphPanel(props: { readonly threadRef: ScopedThreadRef })
                 />
               );
             }
-            const { provider, hint, interaction } = localNodeProps(node);
+            const { provider, hint, interaction, node: shown } = localNodeProps(node);
             return (
               <GraphNodeCard
                 key={node.id}
-                node={node}
+                node={shown}
                 x={position.x}
                 y={position.y}
                 provider={provider}

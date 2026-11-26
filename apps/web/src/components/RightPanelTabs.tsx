@@ -199,7 +199,6 @@ const SURFACE_DISABLED_REASONS = {
   pullRequest: msg("This thread's branch has no pull request yet."),
   pullRequests: msg("This thread has no linked items."),
   device: msg("Devices are only available from a thread."),
-  graph: msg("The thread graph is only available from a thread."),
   sideChat: msg("Side chats start after the first message."),
 } as const;
 
@@ -225,7 +224,6 @@ const SURFACE_UNAVAILABLE_HINTS = {
   pullRequest: msg("No pull request on this branch yet."),
   pullRequests: msg("No linked items available."),
   device: msg("Available from a thread."),
-  graph: msg("Available from a thread."),
   sideChat: msg("Available after the first message."),
 } as const;
 
@@ -308,13 +306,14 @@ export function surfaceShortcutTargetsTypingContext(
   );
 }
 
-function DisabledReasonTooltip(props: { reason: string; trigger: ReactElement }) {
+function DisabledReasonTooltip(props: { reason: string | undefined; trigger: ReactElement }) {
+  if (!props.reason) return props.trigger;
   return <SharedTooltipTrigger render={props.trigger} label={props.reason} />;
 }
 
 function SurfaceMenuItem(props: {
   available: boolean;
-  disabledReason?: string;
+  disabledReason?: string | undefined;
   shortcut: string;
   onClick: () => void;
   children: ReactNode;
@@ -427,7 +426,6 @@ function RightPanelEmptyState(props: {
             icon: Network,
             shortcut: "G",
             available: true,
-            disabledReason: messages(SURFACE_UNAVAILABLE_HINTS.graph),
             onClick: props.onAddGraph,
           },
         ]
@@ -1243,7 +1241,6 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
             icon: Network,
             shortcut: "G",
             available: true,
-            disabledReason: messages(SURFACE_DISABLED_REASONS.graph),
             onClick: props.onAddGraph,
           },
         ]

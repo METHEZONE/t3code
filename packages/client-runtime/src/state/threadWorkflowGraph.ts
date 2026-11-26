@@ -1,8 +1,10 @@
-import type {
-  EnvironmentId,
-  OrchestrationV2ThreadShell,
-  ProviderInstanceId,
-  ThreadId,
+import {
+  isOrchestrationV2WorkActive,
+  type EnvironmentId,
+  type OrchestrationV2ContextTransfer,
+  type OrchestrationV2ThreadShell,
+  type ProviderInstanceId,
+  type ThreadId,
 } from "@t3tools/contracts";
 import * as DateTime from "effect/DateTime";
 
@@ -105,6 +107,27 @@ function workflowStatusFromSubagent(
   }
 }
 
+/** A merge-back waits to be read, is read once consumed, and can fail or be replaced. */
+function workflowStatusFromTransfer(
+  status: OrchestrationV2ContextTransfer["status"],
+): WorkflowNodeStatus {
+  switch (status) {
+    case "pending":
+    case "resolved_native":
+    case "resolved_portable":
+      return "waiting";
+    case "consumed":
+      return "completed";
+    case "failed":
+      return "failed";
+    case "superseded":
+      return "stopped";
+  }
+}
+
+const transferMillis = (transfer: OrchestrationV2ContextTransfer) =>
+  DateTime.toEpochMillis(transfer.updatedAt);
+
 const iso = (value: DateTime.DateTime | null | undefined): string | null =>
   value == null ? null : DateTime.formatIso(value);
 
@@ -123,6 +146,12 @@ export function buildWorkflowGraph(input: {
   readonly threadId: ThreadId;
   readonly threads: ReadonlyArray<OrchestrationV2ThreadShell>;
   readonly projection: ThreadStructure | null;
+  /**
+   * Projections of other threads in the lineage, such as the parent. A merge-back is stored with
+   * both of its threads, but a bounded projection may hold it on one side only, so the graph reads
+   * every projection it is given and the same merge-back shows from either end.
+   */
+  readonly relatedProjections?: ReadonlyArray<ThreadStructure | null>;
 }): WorkflowGraph {
   const { threadId, projection } = input;
   const relationships = deriveThreadRelationshipGraph({ threads: input.threads, projection });
@@ -145,12 +174,28 @@ export function buildWorkflowGraph(input: {
     ),
   );
   const shellOf = (id: ThreadId) => relationships.nodes.get(id)?.thread ?? null;
-  const statusOf = (id: ThreadId): WorkflowNodeStatus => {
+  /**
+   * Follows the Related threads list: a live shell wins, and a subagent still working in the
+   * parent's projection stays running while its own shell has not caught up (idle, or settled from
+   * an earlier run).
+   */
+  const resolveState = (
+    id: ThreadId,
+  ): { readonly status: WorkflowNodeStatus; readonly fromSubagent: boolean } => {
     const shell = shellOf(id);
-    if (shell) return workflowStatusFromShell(shell);
     const subagent = subagentByChild.get(id);
-    return subagent ? workflowStatusFromSubagent(subagent.status) : "idle";
+    if (shell && subagent) {
+      const live = shell.activityRunStatus != null || shell.pendingRuntimeRequest != null;
+      const settled = shell.latestRunId != null && !isOrchestrationV2WorkActive(subagent.status);
+      if (live || settled) return { status: workflowStatusFromShell(shell), fromSubagent: false };
+      return { status: workflowStatusFromSubagent(subagent.status), fromSubagent: true };
+    }
+    if (shell) return { status: workflowStatusFromShell(shell), fromSubagent: false };
+    return subagent
+      ? { status: workflowStatusFromSubagent(subagent.status), fromSubagent: true }
+      : { status: "idle", fromSubagent: false };
   };
+  const statusOf = (id: ThreadId): WorkflowNodeStatus => resolveState(id).status;
 
   const edges = new Map<string, WorkflowGraphEdge>();
   const incomingKind = new Map<string, WorkflowEdgeKind>();
@@ -171,20 +216,31 @@ export function buildWorkflowGraph(input: {
       status: statusOf(edge.targetThreadId),
     });
   }
-  for (const transfer of projection?.contextTransfers ?? []) {
-    if (
-      transfer.type !== "merge_back" ||
-      transfer.sourceThreadId === transfer.targetThreadId ||
-      !reachable.has(transfer.sourceThreadId) ||
-      !reachable.has(transfer.targetThreadId)
-    ) {
-      continue;
+  // One edge per source and target; the newest transfer says where the merge-back stands.
+  const mergeBacks = new Map<string, OrchestrationV2ContextTransfer>();
+  for (const source of [projection, ...(input.relatedProjections ?? [])]) {
+    for (const transfer of source?.contextTransfers ?? []) {
+      if (
+        transfer.type !== "merge_back" ||
+        transfer.sourceThreadId === transfer.targetThreadId ||
+        !reachable.has(transfer.sourceThreadId) ||
+        !reachable.has(transfer.targetThreadId)
+      ) {
+        continue;
+      }
+      const key = `${transfer.sourceThreadId}>${transfer.targetThreadId}`;
+      const known = mergeBacks.get(key);
+      if (known === undefined || transferMillis(transfer) >= transferMillis(known)) {
+        mergeBacks.set(key, transfer);
+      }
     }
+  }
+  for (const transfer of mergeBacks.values()) {
     addEdge({
       source: transfer.sourceThreadId,
       target: transfer.targetThreadId,
       kind: "merge_back",
-      status: statusOf(transfer.sourceThreadId),
+      status: workflowStatusFromTransfer(transfer.status),
     });
   }
 
@@ -261,20 +317,25 @@ export function buildWorkflowGraph(input: {
     // The open thread may be absent from the shells but is always in its projection.
     const thread = shell ?? (id === threadId ? projection?.thread : undefined);
     const subagent = subagentByChild.get(id);
-    const status = statusOf(id);
+    const { status, fromSubagent } = resolveState(id);
     const kind = incomingKind.get(id);
-    const startedAt = shell
-      ? iso(
-          status === "running"
-            ? (shell.activityRunStartedAt ?? shell.latestRunStartedAt)
-            : shell.latestRunStartedAt,
-        )
-      : iso(subagent?.startedAt);
-    const completedAt = shell
-      ? status === "running"
-        ? null
-        : iso(shell.latestRunCompletedAt)
-      : iso(subagent?.completedAt);
+    // A run that is going or waiting shows its own clock, never the previous run's start and end.
+    const active = status === "running" || status === "waiting";
+    const startedAt =
+      shell && !fromSubagent
+        ? active
+          ? (iso(shell.activityRunStartedAt) ??
+            (shell.latestRunCompletedAt == null ? iso(shell.latestRunStartedAt) : null))
+          : iso(shell.latestRunStartedAt)
+        : iso(subagent?.startedAt);
+    const completedAt =
+      shell && !fromSubagent
+        ? active
+          ? null
+          : iso(shell.latestRunCompletedAt)
+        : active
+          ? null
+          : iso(subagent?.completedAt);
     const node: WorkflowGraphNode = {
       id,
       threadId: id,
@@ -365,28 +426,55 @@ export function layoutWorkflowGraph(
     if (!isPlacingEdge(edge) || !order.has(edge.source) || !order.has(edge.target)) continue;
     if (hasParent.has(edge.target) || edge.source === edge.target) continue;
     hasParent.add(edge.target);
-    children.set(edge.source, [...(children.get(edge.source) ?? []), edge.target]);
+    const kids = children.get(edge.source);
+    if (kids === undefined) children.set(edge.source, [edge.target]);
+    else kids.push(edge.target);
   }
 
   const placed = new Map<string, { layer: number; slot: number }>();
   let nextSlot = 0;
-  const place = (id: string, layer: number): number => {
+  // Walks with an explicit stack, so a lineage thousands of threads deep cannot overflow the call
+  // stack. A parent's slot is known once its children are, so it settles when its frame pops.
+  interface Frame {
+    readonly id: string;
+    readonly layer: number;
+    readonly kids: string[];
+    next: number;
+    first: number;
+    last: number;
+  }
+  const open = (id: string, layer: number): Frame => {
     // A guard for a cycle that lineage should never produce.
     placed.set(id, { layer, slot: Number.NaN });
-    const kids = (children.get(id) ?? [])
-      .filter((child) => !placed.has(child))
-      .sort((left, right) => order.get(left)! - order.get(right)!);
-    const slots = kids.map((child) => place(child, layer + 1));
-    const slot = slots.length === 0 ? nextSlot++ : (slots[0]! + slots[slots.length - 1]!) / 2;
-    placed.set(id, { layer, slot });
-    return slot;
+    const kids = [...(children.get(id) ?? [])].sort(
+      (left, right) => order.get(left)! - order.get(right)!,
+    );
+    return { id, layer, kids, next: 0, first: Number.NaN, last: Number.NaN };
+  };
+  const place = (rootId: string) => {
+    const stack = [open(rootId, 0)];
+    for (let frame = stack.at(-1); frame !== undefined; frame = stack.at(-1)) {
+      const kid = frame.kids[frame.next++];
+      if (kid !== undefined) {
+        if (!placed.has(kid)) stack.push(open(kid, frame.layer + 1));
+        continue;
+      }
+      const slot = Number.isNaN(frame.first) ? nextSlot++ : (frame.first + frame.last) / 2;
+      placed.set(frame.id, { layer: frame.layer, slot });
+      stack.pop();
+      const parent = stack.at(-1);
+      if (parent !== undefined) {
+        if (Number.isNaN(parent.first)) parent.first = slot;
+        parent.last = slot;
+      }
+    }
   };
   for (const node of graph.nodes) {
-    if (!hasParent.has(node.id) && !placed.has(node.id)) place(node.id, 0);
+    if (!hasParent.has(node.id) && !placed.has(node.id)) place(node.id);
   }
   // Nodes left over by a cycle still get a slot, so none is dropped.
   for (const node of graph.nodes) {
-    if (!placed.has(node.id)) place(node.id, 0);
+    if (!placed.has(node.id)) place(node.id);
   }
 
   const { nodeWidth, nodeHeight, layerGap, siblingGap, padding, returnOffset } = metrics;
@@ -417,10 +505,13 @@ export function layoutWorkflowGraph(
     const from = positions.get(edge.source);
     const to = positions.get(edge.target);
     if (from === undefined || to === undefined) return [];
-    // A merge-back returns up the tree, so it flows from the node below to the one above and runs
-    // beside the edge it retraces, offset so the two never lie on top of each other.
-    const back = edge.kind === "merge_back";
-    const shift = back ? returnOffset : 0;
+    // An edge that runs against the flow, such as a merge-back up to its parent or a link that
+    // closes a cycle, leaves the node's near side and meets the target's far side. It runs beside
+    // the edge it retraces, offset so the two never lie on top of each other.
+    const fromLayer = placed.get(edge.source)?.layer ?? 0;
+    const toLayer = placed.get(edge.target)?.layer ?? 0;
+    const back = toLayer < fromLayer;
+    const shift = back || edge.kind === "merge_back" ? returnOffset : 0;
     const flowEnd = vertical
       ? { x: nodeWidth / 2 + shift, y: back ? nodeHeight : 0 }
       : { x: back ? nodeWidth : 0, y: nodeHeight / 2 + shift };

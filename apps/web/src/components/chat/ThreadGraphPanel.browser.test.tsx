@@ -4,10 +4,15 @@ import { EnvironmentId, ThreadId } from "@t3tools/contracts";
 import * as DateTime from "effect/DateTime";
 import { expect, it, vi } from "vite-plus/test";
 
-const state = vi.hoisted(() => ({ shells: [] as unknown[] }));
+const state = vi.hoisted(() => ({
+  shells: [] as unknown[],
+  projections: {} as Record<string, unknown>,
+  titles: null as Record<string, string> | null,
+}));
 
 vi.mock(import("../../state/entities"), () => ({
-  useQuietThreadProjection: (() => null) as never,
+  useQuietThreadProjection: ((ref: { threadId: string } | null) =>
+    ref === null ? null : { projection: state.projections[ref.threadId] ?? null }) as never,
   useThreadFamilyShells: (() => state.shells) as never,
 }));
 vi.mock(import("../../state/environments"), () => ({
@@ -15,6 +20,17 @@ vi.mock(import("../../state/environments"), () => ({
   usePrimaryEnvironment: (() => null) as never,
   useEnvironment: (() => null) as never,
   useEnvironmentProviders: (() => new Map()) as never,
+}));
+vi.mock(import("../../state/orchestration"), () => ({
+  orchestrationEnvironment: { threadTitles: () => ({}) } as never,
+  threadTitlesRead: {} as never,
+}));
+vi.mock(import("../../state/query"), () => ({
+  useEnvironmentQuery: ((atom: unknown) => ({
+    data: atom === null ? null : state.titles,
+    isSuccess: state.titles !== null,
+    isPending: false,
+  })) as never,
 }));
 vi.mock(import("../../state/peerLinks"), () => ({
   peerLinkEnvironment: { readThread: {} } as never,
@@ -59,10 +75,18 @@ const childOf = (parent: string, kind: "fork" | "subagent") => ({
   relationshipToParent: kind,
 });
 
-const renderPanel = (threadId: string) =>
+const renderPanel = (threadId: string, container?: HTMLElement) =>
   render(<ThreadGraphPanel threadRef={scopeThreadRef(environmentId, ThreadId.make(threadId))} />, {
     router: "/",
+    ...(container === undefined ? {} : { container }),
   });
+
+/** A right panel as wide as the app lets it be, with the height of a typical window. */
+const panelContainer = (width: number) => {
+  const container = document.createElement("div");
+  container.style.cssText = `display:flex;flex-direction:column;width:${width}px;height:640px`;
+  return container;
+};
 
 const nodeRects = (container: HTMLElement) =>
   [...container.querySelectorAll<HTMLElement>("button[aria-label]")]
@@ -146,4 +170,87 @@ it("remembers the chosen direction", async () => {
         ?.getAttribute("data-graph-orientation"),
     ).toBe("LR"),
   );
+});
+
+const viewportOf = (container: HTMLElement) =>
+  container
+    .querySelector<HTMLElement>('[data-slot="scroll-area-viewport"]')!
+    .getBoundingClientRect();
+
+it.each([390, 414, 420])(
+  "keeps the open thread's card fully inside a %ipx panel in the default vertical layout",
+  async (width) => {
+    localStorage.clear();
+    state.projections = {};
+    state.titles = null;
+    state.shells = [
+      shell("root", 0, "Plan the release", "completed"),
+      shell("a", 1, "First fork", "completed", childOf("root", "fork")),
+      shell("b", 2, "Second fork, the one that is open", "running", childOf("root", "fork")),
+    ];
+    await using screen = await renderPanel("b", panelContainer(width));
+
+    const current = screen.container.querySelector<HTMLElement>('[aria-current="true"]')!;
+    await vi.waitFor(() => {
+      const card = current.getBoundingClientRect();
+      const view = viewportOf(screen.container);
+      expect(card.left).toBeGreaterThanOrEqual(view.left);
+      expect(card.right).toBeLessThanOrEqual(view.right);
+    });
+  },
+);
+
+it("shows a failed merge-back from a fork the same way from either end", async () => {
+  const transfers = [
+    {
+      type: "merge_back",
+      sourceThreadId: ThreadId.make("fork"),
+      targetThreadId: ThreadId.make("root"),
+      status: "failed",
+      updatedAt: at(5),
+    },
+  ];
+  localStorage.clear();
+  state.titles = null;
+  state.shells = [
+    shell("root", 0, "Parent", "completed"),
+    shell("fork", 1, "Fork", "completed", childOf("root", "fork")),
+  ];
+  state.projections = {
+    root: { thread: state.shells[0], subagents: [], contextTransfers: transfers },
+    fork: { thread: state.shells[1], subagents: [], contextTransfers: [] },
+  };
+  for (const open of ["root", "fork"]) {
+    await using screen = await renderPanel(open);
+    await vi.waitFor(() =>
+      expect(screen.container.querySelectorAll('[data-graph-edge="merge_back"]')).toHaveLength(1),
+    );
+    expect(
+      screen.container.querySelector('[data-graph-edge="merge_back"] path')?.getAttribute("class"),
+    ).toContain("stroke-destructive");
+  }
+});
+
+it("does not offer a parent that no store holds and no lookup names", async () => {
+  localStorage.clear();
+  state.projections = {};
+  state.shells = [shell("fork", 1, "Orphan fork", "completed", childOf("gone", "fork"))];
+  state.titles = {};
+  await using screen = await renderPanel("fork");
+  const parent = screen.container.querySelector<HTMLElement>('button[aria-label^="Thread:"]')!;
+  expect(parent.getAttribute("aria-disabled")).toBe("true");
+  expect(parent.style.cursor || getComputedStyle(parent).cursor).toBe("default");
+});
+
+it("opens a parent once a title lookup names it", async () => {
+  localStorage.clear();
+  state.projections = {};
+  state.shells = [shell("fork", 1, "Archived child", "completed", childOf("old", "fork"))];
+  state.titles = { old: "Archived parent" };
+  await using screen = await renderPanel("fork");
+  await expect
+    .element(screen.getByRole("button", { name: /Thread: Archived parent/ }))
+    .toBeVisible();
+  const parent = screen.container.querySelector<HTMLElement>('button[aria-label^="Thread:"]')!;
+  expect(parent.getAttribute("aria-disabled")).toBeNull();
 });
