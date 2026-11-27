@@ -149,18 +149,27 @@ const make = Effect.fn("desktop.environment.make")(function* (
   const homeDirectory = input.homeDirectory;
   const devServerUrl = config.devServerUrl;
   const isDevelopment = Option.isSome(devServerUrl);
+  const isMinBuild = input.platform === "darwin" && input.isPackaged;
+  const t3Home = isMinBuild
+    ? Option.orElse(config.t3Home, () => Option.some(path.join(homeDirectory, ".t3-min")))
+    : config.t3Home;
   const appDataDirectory =
     input.platform === "win32"
       ? Option.getOrElse(config.appDataDirectory, () =>
           path.join(homeDirectory, "AppData", "Roaming"),
         )
       : input.platform === "darwin"
-        ? path.join(homeDirectory, "Library", "Application Support")
+        ? path.join(
+            homeDirectory,
+            "Library",
+            "Application Support",
+            ...(isMinBuild ? ["T3 Code Min"] : []),
+          )
         : Option.getOrElse(config.xdgConfigHome, () => path.join(homeDirectory, ".config"));
   const baseDir = resolveDesktopBaseDir({
     homeDirectory,
     joinPath: path.join,
-    t3Home: config.t3Home,
+    t3Home,
   });
   const rootDir = path.resolve(input.dirname, "../../..");
   const appRoot = input.isPackaged ? input.appPath : rootDir;
@@ -168,16 +177,19 @@ const make = Effect.fn("desktop.environment.make")(function* (
     input.isPackaged && input.platform === "win32"
       ? path.join(input.resourcesPath, "server.asar")
       : appRoot;
-  const branding = resolveDesktopAppBranding({
+  const upstreamBranding = resolveDesktopAppBranding({
     isDevelopment,
     appVersion: input.appVersion,
   });
+  const branding = isMinBuild
+    ? { ...upstreamBranding, baseName: "T3 Code Min", displayName: "T3 Code Min" }
+    : upstreamBranding;
   const displayName = branding.displayName;
   const stateDir = resolveDesktopStateDir({
     baseDir,
     isDevelopment,
     joinPath: path.join,
-    t3Home: config.t3Home,
+    t3Home,
   });
   const linuxApplicationsDir = path.join(
     Option.getOrElse(config.xdgDataHome, () => path.join(homeDirectory, ".local", "share")),

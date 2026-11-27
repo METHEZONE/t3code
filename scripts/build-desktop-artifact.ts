@@ -64,6 +64,7 @@ import { ChildProcess, ChildProcessSpawner } from "effect/process";
 
 const LINUX_ICON_SIZES = [16, 22, 24, 32, 48, 64, 128, 256, 512] as const;
 const DESKTOP_APP_ID = "com.t3tools.t3code";
+const MAC_APP_ID = "com.methezone.t3code.min";
 const APPLE_TEAM_ID_PATTERN = /^[A-Z0-9]{10}$/u;
 
 const BuildPlatform = Schema.Literals(["mac", "linux", "win"]);
@@ -1296,7 +1297,7 @@ export function resolveMacPasskeySigningConfiguration(
   }
 
   return {
-    appId: DESKTOP_APP_ID,
+    appId: MAC_APP_ID,
     teamId,
     rpDomains: uniqueRpDomains,
     provisioningProfilePath,
@@ -2800,7 +2801,7 @@ export function resolvePackageManagerUserAgent(packageManager: string): string {
 export function resolveDesktopProductName(version: string): string {
   return resolveDesktopUpdateChannel(version) === "nightly"
     ? "T3 Code (Nightly)"
-    : (desktopPackageJson.productName ?? "T3 Code");
+    : "T3 Code (Beta)";
 }
 
 export const createBuildConfig = Effect.fn("createBuildConfig")(function* (
@@ -2821,8 +2822,9 @@ export const createBuildConfig = Effect.fn("createBuildConfig")(function* (
 ) {
   const buildConfig: Record<string, unknown> = {
     afterPack: (yield* Path.Path).join(yield* RepoRoot, "scripts/prepare-server-compile-cache.cjs"),
-    appId: DESKTOP_APP_ID,
-    productName: resolveDesktopProductName(version),
+    appId: platform === "mac" ? MAC_APP_ID : DESKTOP_APP_ID,
+    productName:
+      platform === "mac" ? desktopPackageJson.productName : resolveDesktopProductName(version),
     artifactName: "T3-Code-${version}-${arch}.${ext}",
     electronLanguages: [...DESKTOP_ELECTRON_LANGUAGES],
     // runAsNode stays on: the app starts its server, helpers and the `t3` shim by running this
@@ -2859,7 +2861,7 @@ export const createBuildConfig = Effect.fn("createBuildConfig")(function* (
   const updateChannel = resolveDesktopUpdateChannel(version);
   // Missing publish config infers a GitHub feed from tokens; staging has no repository, so manifest generation would crash.
   buildConfig.publish = null;
-  if (!isDesktopPreviewVersion(version)) {
+  if (platform !== "mac" && !isDesktopPreviewVersion(version)) {
     const publishConfig = yield* resolveGitHubPublishConfig(updateChannel);
     if (publishConfig) {
       buildConfig.publish = [publishConfig];
@@ -2901,28 +2903,7 @@ export const createBuildConfig = Effect.fn("createBuildConfig")(function* (
           "T3 Code lets commands run by terminals and coding agents control other apps.",
         NSSpeechRecognitionUsageDescription:
           "T3 Code transcribes your dictation on this Mac when you choose Apple Speech.",
-        // macOS lists an app under Default web browser only when it opens web
-        // pages as documents as well as http and https links (see protocols).
-        CFBundleDocumentTypes: [
-          {
-            CFBundleTypeName: "Web page",
-            CFBundleTypeRole: "Viewer",
-            LSHandlerRank: "Alternate",
-            LSItemContentTypes: ["public.html", "public.xhtml"],
-          },
-        ],
       },
-      protocols: [
-        {
-          name: "T3 Code",
-          schemes: ["t3code", "t3code-dev"],
-        },
-        {
-          name: "Web site URL",
-          schemes: ["http", "https"],
-          role: "Viewer",
-        },
-      ],
       ...(signed ? { sign: path.join(repoRoot, "scripts/sign-macos.ts") } : {}),
       ...(macPasskeySigning
         ? {
