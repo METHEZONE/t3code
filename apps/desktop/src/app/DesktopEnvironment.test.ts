@@ -60,6 +60,17 @@ describe("DesktopEnvironment", () => {
     }),
   );
 
+  it.effect("isolates the packaged macOS app's state and Chromium profile", () =>
+    Effect.gen(function* () {
+      const min = yield* makeEnvironment({ isPackaged: true });
+      assert.equal(min.displayName, "T3 Code Min");
+      assert.equal(min.stateDir, "/Users/alice/.t3-min/userdata");
+      assert.equal(min.appDataDirectory, "/Users/alice/Library/Application Support/T3 Code Min");
+      const overridden = yield* makeEnvironment({ isPackaged: true }, { T3CODE_HOME: "/custom" });
+      assert.equal(overridden.stateDir, "/custom/userdata");
+    }),
+  );
+
   it.effect("keeps implicit development state separate from production state", () =>
     Effect.gen(function* () {
       const development = yield* makeEnvironment(

@@ -506,7 +506,7 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
     }),
   );
 
-  it.effect("omits update feeds for pull request preview builds", () =>
+  it.effect("omits update feeds for preview builds and the macOS fork", () =>
     Effect.gen(function* () {
       const preview = yield* createBuildConfig(
         "mac",
@@ -518,8 +518,8 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
         undefined,
       );
       const release = yield* createBuildConfig(
-        "mac",
-        "dmg",
+        "linux",
+        "AppImage",
         "0.0.33",
         false,
         false,
@@ -537,8 +537,22 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
         undefined,
       );
 
+      const min = yield* createBuildConfig(
+        "mac",
+        "dir",
+        "0.0.33",
+        false,
+        false,
+        undefined,
+        undefined,
+      );
       assert.isNull(preview.publish);
       assert.isNull(previewChannel.publish);
+      assert.include(min, {
+        appId: "com.methezone.t3code.min",
+        productName: "T3 Code Min",
+        publish: null,
+      });
       assert.deepStrictEqual(release.publish, [
         {
           provider: "github",
@@ -1595,7 +1609,7 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
     });
 
     assert.deepStrictEqual(configuration, {
-      appId: "com.t3tools.t3code",
+      appId: "com.methezone.t3code.min",
       teamId: "ABC1234567",
       rpDomains: ["example.clerk.accounts.dev"],
       provisioningProfilePath: "/tmp/t3code.provisionprofile",
@@ -1618,7 +1632,7 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
       "clerk.example.com",
       "example.clerk.accounts.dev",
     ]);
-    assert.include(entitlements, "<string>ABC1234567.com.t3tools.t3code</string>");
+    assert.include(entitlements, "<string>ABC1234567.com.methezone.t3code.min</string>");
     assert.include(entitlements, "<string>webcredentials:clerk.example.com</string>");
     assert.include(entitlements, "<string>webcredentials:example.clerk.accounts.dev</string>");
     assert.include(entitlements, "<key>com.apple.security.cs.allow-jit</key>");
