@@ -88,6 +88,8 @@ export const HttpQuotaAccount = Schema.Struct({
   id: TrimmedNonEmptyString,
   label: TrimmedNonEmptyString,
   providerInstanceId: Schema.optional(ProviderInstanceId),
+  /** `#rrggbb` fill for this account's pool bar segment; a stable hue per id when omitted. */
+  accentColor: Schema.optional(TrimmedNonEmptyString),
   windows: Schema.Array(
     Schema.Struct({
       id: ServerProviderUsageWindow.fields.id,

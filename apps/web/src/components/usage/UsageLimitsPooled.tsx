@@ -4,6 +4,7 @@ import {
   collectLimitAccounts,
   collectLimitPools,
   displayLimitWindows,
+  httpQuotaLimitAccounts,
   type LimitAccount,
   type LimitPool,
   type LimitPoolMember,
@@ -690,8 +691,12 @@ export function UsageLimitsPooled({
   const m = useMessages();
   const [segmentPopover] = useState(() => PopoverCreateHandle<SegmentPayload>());
   const segmentPopoverActions = useRef<PopoverPrimitive.Root.Actions | null>(null);
-  const pools = collectLimitPools(collectLimitAccounts(presentations), now);
   const quotaSources = collectHttpQuotaSources(presentations);
+  const pools = collectLimitPools(collectLimitAccounts(presentations), now);
+  const quotaPools = quotaSources.map((source) => ({
+    source,
+    pools: collectLimitPools(httpQuotaLimitAccounts(source), now),
+  }));
   const notices = collectLimitNotices(presentations, m);
   const externalLinks = collectExternalUsageLinks(presentations, m);
   return (
@@ -710,6 +715,21 @@ export function UsageLimitsPooled({
             <PoolSection pool={pool} now={now} />
           </Fragment>
         ))}
+        {quotaPools.map(({ source, pools: sourcePools }) => (
+          <section key={source.key} className="flex flex-col gap-3">
+            <h2 className="text-sm font-medium text-foreground">{source.label}</h2>
+            {sourcePools.flatMap((pool) =>
+              pool.windows.map((window) => (
+                <PoolWindowCard
+                  key={`${window.kind}:${window.id}`}
+                  pool={window}
+                  color={barColor(pool.driver)}
+                  now={now}
+                />
+              )),
+            )}
+          </section>
+        ))}
       </SegmentPopoverContext>
       <Popover handle={segmentPopover} actionsRef={segmentPopoverActions}>
         {({ payload }) =>
@@ -718,37 +738,12 @@ export function UsageLimitsPooled({
               handle={segmentPopover}
               actions={segmentPopoverActions}
               payload={payload}
-              pools={pools}
+              pools={[...pools, ...quotaPools.flatMap((quota) => quota.pools)]}
               now={now}
             />
           ) : null
         }
       </Popover>
-      {quotaSources.map((source) => (
-        <section key={source.key} className="space-y-3 rounded-xl border p-4">
-          <h2 className="text-sm font-medium">{source.label}</h2>
-          {source.quotaAccounts?.map((account) => (
-            <div key={account.id} className="space-y-1">
-              <h3 className="text-sm font-medium">{account.label}</h3>
-              {account.windows.map((window) => {
-                const reset = formatResetsIn(window, now, m);
-                return (
-                  <div
-                    key={window.id}
-                    className="flex justify-between gap-3 text-sm text-muted-foreground"
-                  >
-                    <span>{window.label}</span>
-                    <span>
-                      {gt("{remaining}% left", { remaining: remainingPercent(window) })}
-                      {reset ? ` · ${reset}` : ""}
-                    </span>
-                  </div>
-                );
-              })}
-            </div>
-          ))}
-        </section>
-      ))}
       {externalLinks.map((link) => (
         <section
           key={link.url}

@@ -20,6 +20,7 @@ import {
   collectLimitAccounts,
   collectExternalUsageLinks,
   collectLimitPools,
+  httpQuotaLimitAccounts,
   elapsedShare,
   exhaustedUsageWindow,
   paceOf,
@@ -2078,5 +2079,48 @@ describe("ChatGPT sharing presentation", () => {
         auth: { status: "unauthenticated", subscriptionSharing: true },
       }),
     ).toBe(false);
+  });
+});
+
+describe("HTTP quota accounts", () => {
+  const source = (accentColor?: string) => ({
+    id: UsageLimitSourceId.make("gateway"),
+    kind: "http" as const,
+    label: "Gateway",
+    key: "env:gateway",
+    checkedAt: "2026-09-03T11:00:00.000Z",
+    accounts: [],
+    quotaAccounts: [
+      {
+        id: "a",
+        label: "Claude · A",
+        ...(accentColor ? { accentColor } : {}),
+        windows: [{ id: "w", kind: "weekly" as const, label: "Weekly", usedPercent: 40 }],
+      },
+      {
+        id: "b",
+        label: "Claude · B",
+        windows: [{ id: "w", kind: "weekly" as const, label: "Weekly", usedPercent: 10 }],
+      },
+    ],
+  });
+
+  it("pools accounts into one bar with their own colors", () => {
+    const accounts = httpQuotaLimitAccounts(source("#e8743b"));
+    const [pool] = collectLimitPools(accounts, 0);
+    expect(pool?.windows).toHaveLength(1);
+    expect(pool?.windows[0]?.columns.map((column) => column.account.displayName)).toEqual([
+      "Claude · A",
+      "Claude · B",
+    ]);
+    expect(pool?.windows[0]?.remainingPercent).toBe(75);
+    expect(accounts[0]?.accentColor).toBe("#e8743b");
+  });
+
+  it("falls back to a stable distinct color for missing or invalid ones", () => {
+    const colors = httpQuotaLimitAccounts(source("red")).map((account) => account.accentColor);
+    expect(colors[0]).toMatch(/^#[0-9a-f]{6}$/);
+    expect(colors[0]).not.toBe(colors[1]);
+    expect(httpQuotaLimitAccounts(source()).map((account) => account.accentColor)).toEqual(colors);
   });
 });

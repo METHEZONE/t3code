@@ -3,6 +3,7 @@ import {
   type ModelSelection,
   type ServerSettings,
   type ProjectId,
+  ProviderDriverKind,
   resolveProjectProviderInstanceEnabled,
   type UsageLimitsReport,
   type ProviderInstanceId,
@@ -289,6 +290,8 @@ function hubIdentity(environmentId: EnvironmentId, source: UsageLimitSourceSnaps
   return endpoint && !local ? endpoint : `${environmentId}:${source.id}`;
 }
 
+const HTTP_QUOTA_DRIVER = ProviderDriverKind.make("httpQuota");
+
 export interface LimitAccount {
   readonly key: string;
   readonly driver: ServerProvider["driver"];
@@ -325,6 +328,41 @@ export function collectHttpQuotaSources(presentations: Parameters<typeof collect
         : [],
     ),
   );
+}
+
+/** Stable `#rrggbb` from an id, for HTTP quota accounts that report no accent color. */
+function hashedAccentColor(id: string): string {
+  let hash = 0;
+  for (const char of id) hash = (hash * 31 + char.charCodeAt(0)) | 0;
+  const hue = Math.abs(hash) % 360;
+  const channel = (offset: number) => {
+    const k = (offset + hue / 30) % 12;
+    const value = 0.58 - 0.3 * Math.max(-1, Math.min(k - 3, 9 - k, 1));
+    return Math.round(value * 255)
+      .toString(16)
+      .padStart(2, "0");
+  };
+  return `#${channel(0)}${channel(8)}${channel(4)}`;
+}
+
+/** HTTP quota accounts as pool members, so they share the native accounts' bar. */
+export function httpQuotaLimitAccounts(
+  source: ReturnType<typeof collectHttpQuotaSources>[number],
+): readonly LimitAccount[] {
+  return (source.quotaAccounts ?? []).map((account) => ({
+    key: `${source.key}:${account.id}`,
+    driver: HTTP_QUOTA_DRIVER,
+    displayName: account.label,
+    email: undefined,
+    plan: undefined,
+    accentColor: /^#[0-9a-fA-F]{6}$/u.test(account.accentColor ?? "")
+      ? account.accentColor
+      : hashedAccentColor(account.id),
+    environments: [],
+    sourceLabel: source.label,
+    redeem: null,
+    limits: { checkedAt: source.checkedAt, windows: account.windows },
+  }));
 }
 
 export function collectLimitAccounts(presentations: LimitPresentations): readonly LimitAccount[] {
