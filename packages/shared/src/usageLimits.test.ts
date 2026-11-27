@@ -14,11 +14,13 @@ import {
   displayLimitWindows,
   cursorUsageWindowDetails,
   collectProviderUsageLimits,
+  hasProviderUsageLimits,
   sameUsageLimitCommandCoverage,
   withUsageLimitsCommands,
   collectLimitAccounts,
   collectExternalUsageLinks,
   collectLimitPools,
+  httpQuotaLimitAccounts,
   elapsedShare,
   exhaustedUsageWindow,
   paceOf,
@@ -1818,6 +1820,22 @@ describe("/usage-limits", () => {
     expect(mixed[2]).toBe(unrelated);
     expect(mixed[3]).toBe(disabled);
   });
+
+  it("does not offer the command to every provider while an HTTP quota source is down", () => {
+    const unrelated = provider({ driver: ProviderDriverKind.make("claudeAgent") });
+    const httpSource = {
+      id: UsageLimitSourceId.make("http-quota"),
+      kind: "http" as const,
+      label: "My quota server",
+      checkedAt: limits.checkedAt,
+      accounts: [],
+    };
+    const down = { ...httpSource, error: "Could not read the HTTP quota source." };
+    expect(withUsageLimitsCommands([unrelated], [httpSource])[0]).toBe(unrelated);
+    expect(withUsageLimitsCommands([unrelated], [down])[0]).toBe(unrelated);
+    expect(hasProviderUsageLimits(unrelated.driver, [unrelated], [down])).toBe(false);
+    expect(sameUsageLimitCommandCoverage([httpSource], [down])).toBe(true);
+  });
 });
 
 describe("sameUsageLimitCommandCoverage", () => {
@@ -1910,6 +1928,35 @@ describe("external usage settings", () => {
       [EnvironmentId.make("c"), host],
     ]);
     expect(collectLimitNotices(presentations)).toEqual(["Host · codex: Could not read limits."]);
+  });
+
+  it("names the providers a hub lists when it has no account T3 Code reads", () => {
+    const hub = (unreadProviders?: readonly string[]) =>
+      new Map([
+        [
+          EnvironmentId.make("a"),
+          {
+            entry: { target: { label: "Desktop" } },
+            serverConfig: {
+              providers: [],
+              usageLimitSources: [
+                {
+                  id: UsageLimitSourceId.make("hub"),
+                  kind: "cliproxy" as const,
+                  label: "Kimi hub",
+                  checkedAt: "2026-09-03T11:00:00.000Z",
+                  accounts: [],
+                  ...(unreadProviders ? { unreadProviders } : {}),
+                },
+              ],
+            },
+          },
+        ],
+      ]);
+    expect(collectLimitNotices(hub(["antigravity", "kimi-ai"]))).toEqual([
+      "Kimi hub: No Codex, Claude, or Grok accounts. Skipped antigravity, kimi-ai.",
+    ]);
+    expect(collectLimitNotices(hub())).toEqual(["Kimi hub: No accounts reported."]);
   });
 
   it("shows the reason an account's limits are unsupported, but not a bare unsupported", () => {
@@ -2032,5 +2079,48 @@ describe("ChatGPT sharing presentation", () => {
         auth: { status: "unauthenticated", subscriptionSharing: true },
       }),
     ).toBe(false);
+  });
+});
+
+describe("HTTP quota accounts", () => {
+  const source = (accentColor?: string) => ({
+    id: UsageLimitSourceId.make("gateway"),
+    kind: "http" as const,
+    label: "Gateway",
+    key: "env:gateway",
+    checkedAt: "2026-09-03T11:00:00.000Z",
+    accounts: [],
+    quotaAccounts: [
+      {
+        id: "a",
+        label: "Claude · A",
+        ...(accentColor ? { accentColor } : {}),
+        windows: [{ id: "w", kind: "weekly" as const, label: "Weekly", usedPercent: 40 }],
+      },
+      {
+        id: "b",
+        label: "Claude · B",
+        windows: [{ id: "w", kind: "weekly" as const, label: "Weekly", usedPercent: 10 }],
+      },
+    ],
+  });
+
+  it("pools accounts into one bar with their own colors", () => {
+    const accounts = httpQuotaLimitAccounts(source("#e8743b"));
+    const [pool] = collectLimitPools(accounts, 0);
+    expect(pool?.windows).toHaveLength(1);
+    expect(pool?.windows[0]?.columns.map((column) => column.account.displayName)).toEqual([
+      "Claude · A",
+      "Claude · B",
+    ]);
+    expect(pool?.windows[0]?.remainingPercent).toBe(75);
+    expect(accounts[0]?.accentColor).toBe("#e8743b");
+  });
+
+  it("falls back to a stable distinct color for missing or invalid ones", () => {
+    const colors = httpQuotaLimitAccounts(source("red")).map((account) => account.accentColor);
+    expect(colors[0]).toMatch(/^#[0-9a-f]{6}$/);
+    expect(colors[0]).not.toBe(colors[1]);
+    expect(httpQuotaLimitAccounts(source()).map((account) => account.accentColor)).toEqual(colors);
   });
 });

@@ -88,6 +88,8 @@ export const HttpQuotaAccount = Schema.Struct({
   id: TrimmedNonEmptyString,
   label: TrimmedNonEmptyString,
   providerInstanceId: Schema.optional(ProviderInstanceId),
+  /** `#rrggbb` fill for this account's pool bar segment; a stable hue per id when omitted. */
+  accentColor: Schema.optional(TrimmedNonEmptyString),
   windows: Schema.Array(
     Schema.Struct({
       id: ServerProviderUsageWindow.fields.id,
@@ -115,6 +117,8 @@ export const UsageLimitSourceSnapshot = Schema.Struct({
   checkedAt: IsoDateTime,
   accounts: ForwardCompatibleArray(UsageLimitSourceAccount),
   quotaAccounts: Schema.optional(ForwardCompatibleArray(HttpQuotaAccount)),
+  /** Hub provider names of enabled accounts that T3 Code cannot read. */
+  unreadProviders: Schema.optional(Schema.Array(TrimmedNonEmptyString)),
   error: Schema.optional(TrimmedNonEmptyString),
 });
 export type UsageLimitSourceSnapshot = typeof UsageLimitSourceSnapshot.Type;
