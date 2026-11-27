@@ -233,7 +233,6 @@ export function ChunkedMarkdown(props: {
                   relativePath={props.relativePath}
                   threadRef={props.threadRef}
                   workspaceMutationId={props.workspaceMutationId}
-                  className="mx-auto max-w-4xl px-6"
                   extensions={CHUNK_FOOTNOTES_ONLY}
                   onTaskListChange={
                     onTaskListChange &&
@@ -252,7 +251,7 @@ export function ChunkedMarkdown(props: {
             return (
               <div className="pb-5">
                 {/* One block this long (a huge fence or HTML block) is too slow to parse. */}
-                <pre className="mx-auto max-w-4xl overflow-x-auto px-6 font-mono text-xs whitespace-pre">
+                <pre className="mx-auto max-w-[45rem] overflow-x-auto px-4 sm:px-6 font-mono text-xs whitespace-pre">
                   {item.chunk.text}
                 </pre>
               </div>
@@ -278,7 +277,6 @@ export function ChunkedMarkdown(props: {
                 relativePath={props.relativePath}
                 threadRef={props.threadRef}
                 workspaceMutationId={props.workspaceMutationId}
-                className="mx-auto max-w-4xl px-6"
                 extensions={extensions}
                 onTaskListChange={
                   onTaskListChange &&

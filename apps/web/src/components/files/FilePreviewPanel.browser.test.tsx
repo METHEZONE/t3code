@@ -636,6 +636,25 @@ describe("source file scroll", () => {
   });
 });
 
+it("opens Markdown in reading view by default and can switch to source and back", async () => {
+  using _settings = setup();
+  localStorage.removeItem("t3code.renderMarkdown");
+  await using screen = await render(
+    markdownPreview(false, "# Reading view\n\n> [!NOTE]\n> 한국어 미리보기\n"),
+  );
+
+  const heading = screen.getByRole("heading", { name: "Reading view" });
+  await expect.element(heading).toBeVisible();
+  await expect.element(screen.getByRole("note").getByText("한국어 미리보기")).toBeVisible();
+
+  await userEvent.click(screen.getByRole("button", { name: "Show markdown source" }));
+  await expect.element(heading).not.toBeInTheDocument();
+  expect(localStorage.getItem("t3code.renderMarkdown")).toBe("false");
+
+  await userEvent.click(screen.getByRole("button", { name: "Show rendered markdown" }));
+  await expect.element(heading).toBeVisible();
+});
+
 describe("rendered Markdown task saves", () => {
   it("renders the whole file of a truncated read, read-only", async () => {
     using _settings = setup();

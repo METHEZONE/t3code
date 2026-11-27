@@ -11,7 +11,6 @@ export function FileMarkdownPreview(props: {
   readonly text: string;
   readonly threadRef: ScopedThreadRef;
   readonly workspaceMutationId: string | null;
-  readonly className?: string;
   readonly extensions?: MarkdownExtensions | undefined;
   readonly onTaskListChange?:
     | ((input: { readonly markerOffset: number; readonly checked: boolean }) => void)
@@ -33,7 +32,7 @@ export function FileMarkdownPreview(props: {
       imageBaseDir={imageBaseDir}
       threadRef={props.threadRef}
       workspaceMutationId={props.workspaceMutationId}
-      className={props.className ?? "mx-auto max-w-4xl px-6 py-5"}
+      className="file-markdown-preview mx-auto max-w-[45rem] px-4 sm:px-6"
       {...(props.extensions ? { extensions: props.extensions } : {})}
       onTaskListChange={props.onTaskListChange}
     />
